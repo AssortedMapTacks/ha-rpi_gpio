@@ -1,13 +1,13 @@
-"""Allows to configure a switch using RPi GPIO."""
+"""Allows to configure a pwmled using RPi GPIO."""
 from __future__ import annotations
 
 import voluptuous as vol
 
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
+from homeassistant.components.fan import PLATFORM_SCHEMA, FanEntity
 from homeassistant.const import (
     CONF_NAME,
     CONF_PORT,
-    CONF_SWITCHES,
+    CONF_FANS,
     CONF_UNIQUE_ID,
     DEVICE_DEFAULT_NAME,
 )
@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.reload import setup_reload_service
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from . import DOMAIN, PLATFORMS, setup_output, write_output
+from .. import DOMAIN, PLATFORMS, setup_pwm, write_pwm
 
 CONF_PULL_MODE = "pull_mode"
 CONF_PORTS = "ports"
@@ -25,9 +25,9 @@ CONF_INVERT_LOGIC = "invert_logic"
 
 DEFAULT_INVERT_LOGIC = False
 
-_SWITCHES_LEGACY_SCHEMA = vol.Schema({cv.positive_int: cv.string})
+_FANS_LEGACY_SCHEMA = vol.Schema({cv.positive_int: cv.string})
 
-_SWITCH_SCHEMA = vol.Schema(
+_FAN_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_PORT): cv.positive_int,
@@ -40,14 +40,14 @@ _SWITCH_SCHEMA = vol.Schema(
 PLATFORM_SCHEMA = vol.All(
     PLATFORM_SCHEMA.extend(
         {
-            vol.Exclusive(CONF_PORTS, CONF_SWITCHES): _SWITCHES_LEGACY_SCHEMA,
-            vol.Exclusive(CONF_SWITCHES, CONF_SWITCHES): vol.All(
-                cv.ensure_list, [_SWITCH_SCHEMA]
+            vol.Exclusive(CONF_PORTS, CONF_FANS): _FANS_LEGACY_SCHEMA,
+            vol.Exclusive(CONF_FANS, CONF_FANS): vol.All(
+                cv.ensure_list, [_FAN_SCHEMA]
             ),
             vol.Optional(CONF_INVERT_LOGIC, default=DEFAULT_INVERT_LOGIC): cv.boolean,
         },
     ),
-    cv.has_at_least_one_key(CONF_PORTS, CONF_SWITCHES),
+    cv.has_at_least_one_key(CONF_PORTS, CONF_FANS),
 )
 
 
@@ -60,33 +60,33 @@ def setup_platform(
     """Set up the Raspberry PI GPIO devices."""
     setup_reload_service(hass, DOMAIN, PLATFORMS)
 
-    switches = []
+    fans = []
 
-    switches_conf = config.get(CONF_SWITCHES)
-    if switches_conf is not None:
-        for switch in switches_conf:
-            switches.append(
-                RPiGPIOSwitch(
-                    switch[CONF_NAME],
-                    switch[CONF_PORT],
-                    switch[CONF_INVERT_LOGIC],
-                    switch.get(CONF_UNIQUE_ID),
+    fans_conf = config.get(CONF_FANS)
+    if fans_conf is not None:
+        for fan in fans_conf:
+            fans.append(
+                RPiGPIOFan(
+                    fan[CONF_NAME],
+                    fan[CONF_PORT],
+                    fan[CONF_INVERT_LOGIC],
+                    fan.get(CONF_UNIQUE_ID),
                 )
             )
 
-        add_entities(switches, True)
+        add_entities(fans, True)
         return
 
     invert_logic = config[CONF_INVERT_LOGIC]
 
     ports = config[CONF_PORTS]
     for port, name in ports.items():
-        switches.append(RPiGPIOSwitch(name, port, invert_logic))
+        fans.append(RPiGPIOFan(name, port, invert_logic))
 
-    add_entities(switches)
+    add_entities(fans)
 
 
-class RPiGPIOSwitch(SwitchEntity):
+class RPiGPIOFan(FanEntity):
     """Representation of a  Raspberry Pi GPIO."""
 
     def __init__(self, name, port, invert_logic, unique_id=None):
@@ -97,8 +97,9 @@ class RPiGPIOSwitch(SwitchEntity):
         self._port = port
         self._invert_logic = invert_logic
         self._state = False
-        setup_output(self._port)
-        write_output(self._port, 1 if self._invert_logic else 0)
+        self._freq = 100 # frequency in Hz
+        setup_pwm(self._port)
+        write_pwm(self._port, self._freq, 0)
 
     @property
     def is_on(self):
@@ -107,12 +108,12 @@ class RPiGPIOSwitch(SwitchEntity):
 
     def turn_on(self, **kwargs):
         """Turn the device on."""
-        write_output(self._port, 0 if self._invert_logic else 1)
+        write_pwm(self._port, self._freq, 100)
         self._state = True
         self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs):
         """Turn the device off."""
-        write_output(self._port, 1 if self._invert_logic else 0)
+        write_pwm(self._port, self._freq, 0)
         self._state = False
         self.schedule_update_ha_state()

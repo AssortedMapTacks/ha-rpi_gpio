@@ -15,6 +15,7 @@ PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.COVER,
     Platform.SWITCH,
+    Platform.FAN,
 ]
 
 
@@ -48,6 +49,10 @@ def write_output(port, value):
     """Write a value to a GPIO."""
     GPIO.output(port, value)
 
+def write_pwm(port, value, freq):
+    """Write a PWM value to a GPIO."""
+    p = GPIO.PWM(port, freq)
+    p.start(value)
 
 def read_input(port):
     """Read a value from a GPIO."""
